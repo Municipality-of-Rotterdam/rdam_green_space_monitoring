@@ -73,8 +73,7 @@ It generates 3D meshes of tree crowns and stems, computes metrics, finds collisi
 
 #### CloudComPy
 The package `pc_ops` makes use of **CloudComPy**, a Python wrapper for CloudCompare.  
-To install CloudComPy (used for clustering trees using connected components), follow the instructions in  
-[`lib/pc_ops/CloudComPy_installation.md`](lib/pc_ops/CloudComPy_installation.md).
+To install CloudComPy (used for clustering trees using connected components), follow the instructions in `CloudComPy_installation.md` in the `pc_ops` repo.
 
 #### AdTree
 The package `tree_modeling` makes use of **AdTree**, a custom library for detailed tree modeling.  
