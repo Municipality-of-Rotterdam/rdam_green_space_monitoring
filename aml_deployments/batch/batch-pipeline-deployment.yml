@@ -1,0 +1,6 @@
+
+$schema: https://azuremlschemas.azureedge.net/latest/batchDeployment.schema.json
+name: rdam_green_space_monitoring-pipeline-deployment
+endpoint_name: rdam_green_space_monitoring-batch
+type: pipeline
+component: batch-pipeline.yml

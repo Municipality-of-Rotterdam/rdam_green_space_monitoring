@@ -1,0 +1,6 @@
+
+$schema: https://azuremlschemas.azureedge.net/latest/batchEndpoint.schema.json
+name: rdam_green_space_monitoring-batch
+auth_mode: aad_token
+tags:
+  managed: true
