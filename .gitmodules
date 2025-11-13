@@ -1,0 +1,12 @@
+[submodule "lib/pc_prep"]
+	path = lib/pc_prep
+	url = https://github.com/Municipality-of-Rotterdam/pc_prep
+[submodule "lib/pc_segment"]
+	path = lib/pc_segment
+	url = https://github.com/Municipality-of-Rotterdam/pc_segment
+[submodule "lib/pc_ops"]
+	path = lib/pc_ops
+	url = https://github.com/Municipality-of-Rotterdam/pc_ops
+[submodule "lib/tree_modeling"]
+	path = lib/tree_modeling
+	url = https://github.com/Municipality-of-Rotterdam/tree_modeling
