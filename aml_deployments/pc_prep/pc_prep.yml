@@ -1,0 +1,60 @@
+$schema: https://azuremlschemas.azureedge.net/latest/commandComponent.schema.json
+name: pc_preprocessing
+type: command
+environment: azureml:pc_prep:X.X.X
+version: ${version}
+
+inputs:
+  tree_df_path:
+    type: uri_file
+  reference_trees_path: 
+    type: uri_file
+  pc_raw:
+    type: uri_folder
+  pc_raw_metadata:
+    type: uri_file
+  bgt_pavements_raw:
+    type: uri_file
+  resolution:
+    type: number
+    optional: true
+  num_workers:
+    type: number
+    optional: true
+  debug:
+    type: boolean
+    optional: true
+  overwrite:
+    type: boolean
+    optional: true
+outputs:
+  img_dir:
+    type: uri_folder
+  img_metadata:
+    type: uri_file
+  pc_dir:
+    type: uri_folder
+  pc_metadata:
+    type: uri_file
+  bgt_dir:
+    type: uri_folder
+  bgt_metadata:
+    type: uri_file
+code: ./
+command: >-
+  python pc_prep_script.py
+  --tree_df_path ${{inputs.tree_df_path}}  
+  --reference_trees_path ${{inputs.reference_trees_path}}
+  --pc_raw_metadata ${{inputs.pc_raw_metadata}}
+  --pc_raw ${{inputs.pc_raw}}
+  --bgt_pavements_raw ${{inputs.bgt_pavements_raw}}
+  --img_dir ${{outputs.img_dir}}
+  --img_metadata ${{outputs.img_metadata}}
+  --pc_dir ${{outputs.pc_dir}}
+  --pc_metadata ${{outputs.pc_metadata}}
+  --bgt_dir ${{outputs.bgt_dir}}
+  --bgt_metadata ${{outputs.bgt_metadata}}
+  $[[--resolution ${{inputs.resolution}}]]
+  $[[--num_workers ${{inputs.num_workers}}]]
+  $[[--debug ${{inputs.debug}}]]
+  $[[--overwrite ${{inputs.overwrite}}]]

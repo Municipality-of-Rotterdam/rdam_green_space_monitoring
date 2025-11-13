@@ -1,0 +1,22 @@
+$schema: https://azuremlschemas.azureedge.net/latest/commandComponent.schema.json
+name: tree_modeling_merge
+display_name: Merge modeling index (reduce)
+type: command
+version: ${version}
+
+environment:
+  image: mcr.microsoft.com/azureml/openmpi5.0-ubuntu24.04
+
+inputs:
+  partial_metadata_lines:
+    type: uri_file
+
+outputs:
+  modeling_index:
+    type: uri_file
+
+code: ./
+command: >-
+  python tree_modeling_parallel_merge_script.py
+  --partial ${{inputs.partial_metadata_lines}}
+  --modeling_index ${{outputs.modeling_index}}

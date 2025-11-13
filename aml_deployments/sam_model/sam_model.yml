@@ -1,0 +1,4 @@
+$schema: https://azuremlschemas.azureedge.net/latest/model.schema.json
+name: ViT_H_SAM_model
+path: sam_vit_h_4b8939.pth
+description: SAM model created from downloaded checkpoint file.

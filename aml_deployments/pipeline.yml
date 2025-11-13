@@ -1,0 +1,144 @@
+$schema: https://azuremlschemas.azureedge.net/latest/pipelineJob.schema.json
+type: pipeline
+experiment_name: pc_tree_modeling
+display_name: "${run_name}"
+
+settings:
+  default_compute: azureml:cpu004-compute
+  default_datastore: azureml:workspaceblobstore
+  force_rerun: false
+  continue_on_step_failure: false
+
+inputs:
+  tree_df_path:
+    type: uri_file
+    mode: download
+    path: azureml://datastores/workspaceblobstore/paths/green_space_monitoring/input/${tree_df_path}
+  reference_trees_path:
+    type: uri_file
+    mode: download
+    path: azureml://datastores/workspaceblobstore/paths/green_space_monitoring/input/${reference_trees_path}
+  pc_raw_metadata:
+    type: uri_file
+    mode: download
+    path: azureml://datastores/workspaceblobstore/paths/green_space_monitoring/pointcloud/MLS/metadata/${pc_metadata_filename}
+  pc_raw:
+    type: uri_folder
+    mode: ro_mount
+    path: azureml://datastores/workspaceblobstore/paths/green_space_monitoring/pointcloud/MLS
+  bgt_pavements_raw:
+    type: uri_file
+    mode: download
+    path: azureml://datastores/workspaceblobstore/paths/green_space_monitoring/input/${bgt_pavements_raw}
+  num_workers: 28
+  model_path:
+    type: custom_model
+    path: azureml://registries/shared_registry/models/ViT_H_SAM_model/versions/2
+  batch_size: 1
+  debug: True
+  resolve_overlapping_trees: False
+  overwrite: False
+outputs:
+  modeling_dir:
+    type: uri_folder
+    mode: rw_mount
+    path: azureml://datastores/workspaceblobstore/paths/SB/green_space_monitoring/output/${version_tree_modeling}/${run_name}/
+
+jobs:
+  pc_prep_job:
+    type: command
+    component: azureml:pc_preprocessing:${version_pc_prep}
+    limits:
+      timeout: 6000 #in seconds
+    inputs:
+      tree_df_path: ${{parent.inputs.tree_df_path}}
+      reference_trees_path: ${{parent.inputs.reference_trees_path}}
+      pc_raw_metadata: ${{parent.inputs.pc_raw_metadata}}
+      pc_raw: ${{parent.inputs.pc_raw}}
+      bgt_pavements_raw: ${{parent.inputs.bgt_pavements_raw}}
+      num_workers: ${{parent.inputs.num_workers}}
+      debug: ${{ parent.inputs.debug }}
+      overwrite: ${{ parent.inputs.overwrite }}
+    outputs:
+      img_dir:
+        type: uri_folder
+        mode: rw_mount
+        path: azureml://datastores/workspaceblobstore/paths/green_space_monitoring/img_dir/${version_pc_prep}/${run_name}/
+      img_metadata:
+        type: uri_file
+        mode: rw_mount
+        path: azureml://datastores/workspaceblobstore/paths/green_space_monitoring/img_dir/${version_pc_prep}/${run_name}/img_metadata.json
+      pc_dir:
+        type: uri_folder
+        mode: rw_mount
+        path: azureml://datastores/workspaceblobstore/paths/green_space_monitoring/pc_dir/${version_pc_prep}/${run_name}/
+      pc_metadata:
+        type: uri_file
+        mode: rw_mount
+        path: azureml://datastores/workspaceblobstore/paths/green_space_monitoring/pc_dir/${version_pc_prep}/${run_name}/pc_metadata.json
+      bgt_dir:
+        type: uri_folder
+        mode: rw_mount
+        path: azureml://datastores/workspaceblobstore/paths/green_space_monitoring/bgt_dir/${version_pc_prep}/${run_name}/
+      bgt_metadata:
+        type: uri_file
+        mode: rw_mount
+        path: azureml://datastores/workspaceblobstore/paths/green_space_monitoring/bgt_dir/${version_pc_prep}/${run_name}/bgt_metadata.json
+  pc_segment_job:
+    type: command
+    component: azureml:pc_segment:${version_pc_segment}
+    compute: azureml:gpu002-compute
+    inputs:
+      model_path: ${{parent.inputs.model_path}}
+      img_dir: ${{parent.jobs.pc_prep_job.outputs.img_dir}}
+      img_metadata: ${{parent.jobs.pc_prep_job.outputs.img_metadata}}
+      batch_size: ${{parent.inputs.batch_size}}
+      debug: ${{ parent.inputs.debug }}
+      overwrite: ${{ parent.inputs.overwrite }}
+    outputs:
+      segment_dir:
+        type: uri_folder
+        mode: rw_mount
+        path: azureml://datastores/workspaceblobstore/paths/green_space_monitoring/segment_dir/${version_pc_segment}/${run_name}/
+      segment_metadata:
+        type: uri_file
+        mode: rw_mount
+        path: azureml://datastores/workspaceblobstore/paths/green_space_monitoring/segment_dir/${version_pc_segment}/${run_name}/segment_metadata.json
+
+  pc_ops_job:
+    type: command
+    component: azureml:pc_ops:${version_pc_ops}
+    inputs:    
+      segment_dir: ${{parent.jobs.pc_segment_job.outputs.segment_dir}}
+      segment_metadata: ${{parent.jobs.pc_segment_job.outputs.segment_metadata}}      
+      img_dir: ${{parent.jobs.pc_prep_job.outputs.img_dir}}
+      img_metadata: ${{parent.jobs.pc_prep_job.outputs.img_metadata}}      
+      pc_dir: ${{parent.jobs.pc_prep_job.outputs.pc_dir}}
+      pc_metadata: ${{parent.jobs.pc_prep_job.outputs.pc_metadata}}
+      num_workers: ${{parent.inputs.num_workers}}
+      debug: ${{ parent.inputs.debug }}
+      overwrite: ${{ parent.inputs.overwrite }}
+      resolve_overlapping_trees: ${{ parent.inputs.resolve_overlapping_trees }}
+    outputs:
+      ops_dir:
+        type: uri_folder
+        mode: rw_mount
+        path: azureml://datastores/workspaceblobstore/paths/green_space_monitoring/ops_dir/${version_pc_ops}/${run_name}/
+      ops_metadata:
+        type: uri_file
+        mode: rw_mount
+        path: azureml://datastores/workspaceblobstore/paths/green_space_monitoring/ops_dir/${version_pc_ops}/${run_name}/ops_metadata.json
+
+  tree_modeling_job:
+    type: command
+    component: azureml:tree_modeling:${version_tree_modeling}
+    inputs:    
+      ops_dir: ${{parent.jobs.pc_ops_job.outputs.ops_dir}}
+      ops_metadata: ${{parent.jobs.pc_ops_job.outputs.ops_metadata}}          
+      bgt_dir: ${{parent.jobs.pc_prep_job.outputs.bgt_dir}}
+      bgt_metadata: ${{parent.jobs.pc_prep_job.outputs.bgt_metadata}}
+      num_workers: ${{parent.inputs.num_workers}}
+      debug: ${{ parent.inputs.debug }}
+      overwrite: ${{ parent.inputs.overwrite }}
+    outputs:
+      modeling_dir: ${{parent.outputs.modeling_dir}}

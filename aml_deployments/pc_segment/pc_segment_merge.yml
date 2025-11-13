@@ -1,0 +1,22 @@
+$schema: https://azuremlschemas.azureedge.net/latest/commandComponent.schema.json
+name: pc_segment_merge
+display_name: Merge segment metadata (reduce)
+type: command
+version: ${version}
+
+environment:
+  image: mcr.microsoft.com/azureml/openmpi5.0-ubuntu24.04
+
+inputs:
+  partial_metadata_lines:
+    type: uri_file
+
+outputs:
+  segment_metadata:
+    type: uri_file
+
+code: ./
+command: >-
+  python pc_segment_parallel_merge_script.py
+  --partial ${{inputs.partial_metadata_lines}}
+  --segment_metadata ${{outputs.segment_metadata}}

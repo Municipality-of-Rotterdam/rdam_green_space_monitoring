@@ -1,0 +1,36 @@
+$schema: https://azuremlschemas.azureedge.net/latest/commandComponent.schema.json
+name: pc_segment
+type: command
+environment: azureml:pc_segment:X.X.X
+version: ${version}
+inputs:
+  model_path:
+    type: custom_model
+  img_dir:
+    type: uri_folder
+  img_metadata: 
+    type: uri_file
+  batch_size:
+    type: number
+  debug:
+    type: boolean
+    optional: true
+  overwrite:
+    type: boolean
+    optional: true
+outputs:
+  segment_dir:
+    type: uri_folder
+  segment_metadata:
+    type: uri_file
+code: ./
+command: >-
+  python pc_segment_script.py
+  --model_path ${{inputs.model_path}}
+  --img_dir ${{inputs.img_dir}}  
+  --img_metadata ${{inputs.img_metadata}}
+  --batch_size ${{inputs.batch_size}}
+  --segment_dir ${{outputs.segment_dir}}
+  --segment_metadata ${{outputs.segment_metadata}}
+  $[[--debug ${{inputs.debug}}]]
+  $[[--overwrite ${{inputs.overwrite}}]]

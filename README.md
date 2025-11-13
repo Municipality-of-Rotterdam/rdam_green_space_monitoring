@@ -1,19 +1,36 @@
-# rdam_green_space_monitoring
+# 🌿 rdam_green_space_monitoring — End-to-End Urban Green Space Monitoring Pipeline
+
 <p align="center">
   <img src="docs/images/tree_measurements.gif" width="700"/>
 </p>
 
-*Figure: Animated visualization of tree extraction and measurements from pointcloud data.*
+*Animated workflow: extracting, segmenting, and measuring trees from point-cloud data.*
 
-This repository provides an end-to-end pipeline for preparing, segmenting, processing, and modeling tree data from pointclouds.  
-It includes multiple modular packages that handle data preprocessing, segmentation, pointcloud operations, and tree modeling.  
-It contains all package repos, component definitions, and pipeline configurations to run the whole green space monitoring analysis.
+`rdam_green_space_monitoring` is the **umbrella repository** for Rotterdam’s full **LiDAR-based green-space monitoring pipeline**.  
+It orchestrates the complete workflow—from raw pointclouds to per-tree 3D geometry, metrics, and urban-context analytics—by integrating several modular subpackages.
 
-The project consists of the following package_repos (see also the lib/ folder):  
-[pc_prep](https://github.com/Municipality-of-Rotterdam/pc_prep)  
-[pc_segment](https://github.com/Municipality-of-Rotterdam/pc_segment)  
-[pc_ops](https://github.com/Municipality-of-Rotterdam/pc_ops)  
-[tree_modeling](https://github.com/Municipality-of-Rotterdam/tree_modeling)
+This system provides:
+
+- **Point cloud preparation & asset extraction** (tiling, ground filtering, BGT assets, 2D raster prompts),
+- **2D/3D tree segmentation** using configurable prompting,
+- **3D pointcloud operations** (mask→3D conversion, clustering, slice analyses),
+- **Tree geometry modeling** (stem/crown reconstruction, metrics, crown–pavement interactions),
+- **Pipeline configurations & component definitions** for cloud-scale execution.
+
+This repository bundles the following package repos (also available in `lib/`):
+
+- 🌐 **[`pc_prep`](https://github.com/Municipality-of-Rotterdam/pc_prep)** — point-cloud tiling, preprocessing & rasterization  
+- 🎨 **[`pc_segment`](https://github.com/Municipality-of-Rotterdam/pc_segment)** — 2D segmentation & prompting  
+- 🧩 **[`pc_ops`](https://github.com/Municipality-of-Rotterdam/pc_ops)** — 3D operations & geometry extraction  
+- 🌳 **[`tree_modeling`](https://github.com/Municipality-of-Rotterdam/tree_modeling)** — 3D tree reconstruction & metric computation  
+
+Together, these components form a **scalable, modular analysis suite** for mapping and monitoring Rotterdam’s urban green infrastructure.
+
+<p align="center">
+  <img src="docs/images/results_gpkg.png" width="700"/>
+</p>
+
+*Example output file after running the whole pipeline. It shows tree segments (orange polygons) with measurements as attributes (table on the right).*
 
 ### Packages
 
@@ -97,25 +114,97 @@ Before running the pipeline, prepare the input data as follows:
 
 ---
 
-## Run pipeline with cloud provider
+## Azure Machine Learning Pipeline Execution Guide
 
-Below is an example of how the code could be run when using Azure Machine Learning.
-Note that the code for this orchestration is not included in the repository.
+Below is an example of how the code could be run as a pipeline when using Azure
+Machine Learning.
 
-<p align="center">
-  <img src="docs/images/pipeline_architecture.jpeg" width="1000"/>
-</p>
+Note that we provide the code for building components and orchestrating
+pipelines, but we do not enable CI/CD for automation of this procedure.
+
+Each submodule or package repository has its own Azure Machine Learning
+(AML) component.
+The component's content follows the package's repository directly; it
+expects an Azure Machine Learning environment with said package as
+dependency.
+Note that we again do not enable CI/CD for automation of this procedure.
+
+
+
+The pipeline can be executed using either **parallel** or **serial**
+compute:
+
+-   Use **parallel** execution for large-scale jobs (e.g. \>1000 tiles
+    such as the entire city of Rotterdam).
+-   Use **serial** execution for smaller datasets or debugging.
+
+For serial processing, there is one component per package.
+For parallel processing, for `pc_prep`, `pc_segment`, and `tree_modeling`, the pipeline consists of:
+- A *plan items* component  
+- A *parallel run* task  
+- A *merge items* component  
+
+For `pc_ops`, it includes:
+- An *MPI-distributed* component  
+- A *merge* component
+
+![AML Pipeline](docs/images/pipeline_aml.png)
+
+*Figure: Azure Machine Learning pipeline showing data flow and component
+dependencies for serial processing.*
+
+### Steps to Prepare and Run the Pipeline
+
+1.  **Create an Azure Machine Learning environment for the package**
+
+    From the corresponding *package* repository (e.g. `pc_ops`,
+    `pc_prep`, etc.), build and register an AML environment that has the
+    package as a dependency.
+
+    ``` bash
+    az ml environment create -f aml_environment.yml
+    ```
+    NOTE: the image should be updated with the Dockerfile specified.
+
+    NOTE 2: the package still needs to be build.
+
+2.  **Create or update the Azure Machine Learning component for this
+    repo**
+
+    In the *current* repository, create or update the AML component
+    referencing the environment created above.
+    E.g., in case of serial processing:
+
+    ``` bash
+    az ml component create -f aml_deployments/pc_prep/pc_prep.yml
+    ```
+
+3.  **Fill in the pipeline parameters in your YAML file** based on\
+    `aml_deployments/pipeline.yml` (serial) or
+    `aml_deployments/pipeline_parallel.yml` (parallel).
+
+4.  **Execute the pipeline using Azure ML CLI:**
+
+    ``` bash
+    az ml job create -f YOUR_FILLED_PIPELINE.yml
+    ```
+
+5.  **Optionally, tag your run with specific package versions:**
+
+    ``` bash
+    az ml job create --file pipeline_filled.yml --set tags.pkg_version_pc_prep=0.1.1 --set tags.pkg_version_pc_segment=2.0.11  --set tags.pkg_version_pc_ops=2.1.0 --set tags.pkg_version_tree_modeling=2.1.2
+    ```
+
+---
+
+![Pipeline Architecture](docs/images/pipeline_architecture.jpeg)
 
 *Figure: High-level overview of the Azure ML pipeline architecture.*
 
-The pipeline can be executed using either **parallel** or **serial** compute:
+---
 
-- Use **parallel** execution for large-scale jobs (e.g. >1000 tiles such as the entire city of Rotterdam).  
-- Use **serial** execution for smaller datasets or debugging.
+## 👥 Authors & Contact
 
-<p align="center">
-  <img src="docs/images/pipeline_aml.png" width="1000"/>
-</p>
+Developed by the **City of Rotterdam** for urban point cloud analyses.
 
-*Figure: Azure Machine Learning pipeline showing data flow and component dependencies.*
-
+---

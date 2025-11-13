@@ -1,0 +1,37 @@
+$schema: https://azuremlschemas.azureedge.net/latest/commandComponent.schema.json
+name: tree_modeling
+type: command
+environment: azureml:tree_modeling:X.X.X
+version: ${version}
+inputs:
+  ops_dir: 
+    type: uri_folder
+  ops_metadata:
+    type: uri_file
+  bgt_dir: 
+    type: uri_folder
+  bgt_metadata:
+    type: uri_file
+  num_workers:
+    type: number
+    optional: true
+  debug:
+    type: boolean
+    optional: true
+  overwrite:
+    type: boolean
+    optional: true
+outputs:
+  modeling_dir:
+    type: uri_folder
+code: ./
+command: >-
+  python tree_modeling_script.py
+  --ops_dir ${{inputs.ops_dir}}
+  --ops_metadata ${{inputs.ops_metadata}}
+  --bgt_dir ${{inputs.bgt_dir}}
+  --bgt_metadata ${{inputs.bgt_metadata}}
+  --modeling_dir ${{outputs.modeling_dir}}
+  $[[--num_workers ${{inputs.num_workers}}]]
+  $[[--debug ${{inputs.debug}}]]
+  $[[--overwrite ${{inputs.overwrite}}]]

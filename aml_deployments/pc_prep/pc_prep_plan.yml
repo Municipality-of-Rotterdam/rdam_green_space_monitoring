@@ -1,0 +1,26 @@
+$schema: https://azuremlschemas.azureedge.net/latest/commandComponent.schema.json
+name: pc_prep_plan
+display_name: Plan PC items (one file per path)
+type: command
+version: ${version}
+environment: azureml:pc_prep:X.X.X
+code: ./
+
+inputs:
+  tree_df_path:
+    type: uri_file
+  pc_raw_metadata:
+    type: uri_file
+  pc_raw:
+    type: uri_folder
+
+outputs:
+  items_folder:
+    type: uri_folder
+
+command: >-
+  python pc_prep_parallel_plan_script.py
+  --tree_df_path ${{inputs.tree_df_path}}
+  --pc_raw_metadata ${{inputs.pc_raw_metadata}}
+  --pc_raw ${{inputs.pc_raw}}
+  --out_items_folder ${{outputs.items_folder}}

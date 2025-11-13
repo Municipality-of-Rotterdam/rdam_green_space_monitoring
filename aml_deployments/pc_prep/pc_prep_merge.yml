@@ -1,0 +1,28 @@
+$schema: https://azuremlschemas.azureedge.net/latest/commandComponent.schema.json
+name: pc_prep_merge
+display_name: Merge preprocessing metadata (reduce)
+type: command
+version: ${version}
+
+environment:
+  image: mcr.microsoft.com/azureml/openmpi5.0-ubuntu24.04
+
+inputs:
+  partial_metadata_lines:
+    type: uri_file
+
+outputs:
+  img_metadata:
+    type: uri_file
+  pc_metadata:
+    type: uri_file
+  bgt_metadata:
+    type: uri_file
+
+code: ./
+command: >-
+  python pc_prep_parallel_merge_script.py
+  --partial ${{inputs.partial_metadata_lines}}
+  --img_metadata ${{outputs.img_metadata}}
+  --pc_metadata ${{outputs.pc_metadata}}
+  --bgt_metadata ${{outputs.bgt_metadata}}
