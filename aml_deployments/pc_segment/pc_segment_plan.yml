@@ -1,0 +1,22 @@
+$schema: https://azuremlschemas.azureedge.net/latest/commandComponent.schema.json
+name: pc_segment_plan
+display_name: Plan segment items (one file per image)
+type: command
+version: ${version}
+
+environment:
+  image: mcr.microsoft.com/azureml/openmpi5.0-ubuntu24.04
+
+inputs:
+  img_metadata:
+    type: uri_file
+
+outputs:
+  items_folder:
+    type: uri_folder
+
+code: ./
+command: >-
+  python pc_segment_parallel_plan_script.py
+  --img_metadata ${{inputs.img_metadata}}
+  --out_items_folder ${{outputs.items_folder}}

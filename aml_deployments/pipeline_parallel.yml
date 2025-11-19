@@ -1,0 +1,381 @@
+$schema: https://azuremlschemas.azureedge.net/latest/pipelineJob.schema.json
+type: pipeline
+experiment_name: pc_tree_modeling_parallel
+display_name: "${run_name}"
+
+settings:
+  default_compute: azureml:cpu004-compute
+  default_datastore: azureml:workspaceblobstore
+  force_rerun: false
+  continue_on_step_failure: false
+
+# ------------------------ PIPELINE INPUTS (parameterized) ------------------------
+inputs:
+  # source data
+  tree_df_path:
+    type: uri_file
+    path: azureml://datastores/workspaceblobstore/paths/green_space_monitoring/input/${tree_df_path}
+  reference_trees_path:
+    type: uri_file
+    path: azureml://datastores/workspaceblobstore/paths/green_space_monitoring/input/${reference_trees_path}
+  pc_raw_metadata:
+    type: uri_file
+    path: azureml://datastores/workspaceblobstore/paths/green_space_monitoring/pointcloud/MLS/metadata/${pc_metadata_filename}
+  pc_raw:
+    type: uri_folder
+    mode: ro_mount
+    path: azureml://datastores/workspaceblobstore/paths/green_space_monitoring/pointcloud/MLS
+  bgt_pavements_raw:
+    type: uri_file
+    path: azureml://datastores/workspaceblobstore/paths/green_space_monitoring/input/${bgt_pavements_raw}
+  model_path:
+    type: custom_model
+    path: azureml://registries/shared_registry/models/ViT_H_SAM_model/versions/2
+
+  # Settings
+  batch_size: 2                         # SAM internal batch
+  aml_segment_mini_batch: 2             # AML mini-batch for segmentation
+  aml_mini_batch: 1                     # AML mini-batch for pc_prep & tree modeling
+  tree_modeling_per_item_timeout: 600   # in seconds, per item
+  pc_prep_per_item_timeout: 300         # in seconds, per item
+  pc_segment_per_item_timeout: 300      # in seconds, per item
+  pc_ops_per_worker_timeout: 7200       # in seconds, per worker (so total_time_timeout/(num_workers*num_nodes))
+  debug: True
+  resolve_overlapping_trees: False
+  overwrite: False
+
+  # preprocessing/ops knobs
+  resolution: 0.05
+  num_workers: 7
+  compute_name_cpu: azureml:cpu003-compute
+  compute_name_gpu: azureml:gpu002-compute
+  num_nodes_cpu: 2
+  num_nodes_gpu: 2
+
+# ------------------------ FINAL PIPELINE OUTPUTS ------------------------
+outputs:
+  modeling_dir:
+    type: uri_folder
+    mode: rw_mount
+    path: azureml://datastores/workspaceblobstore/paths/green_space_monitoring/output/${version_tree_modeling}/${run_name}/
+  # optional index (produced by reduce at the end)
+  modeling_index:
+    type: uri_file
+    mode: rw_mount
+    path: azureml://datastores/workspaceblobstore/paths/green_space_monitoring/modeling_dir/${version_tree_modeling}/${run_name}/modeling_index.json
+
+# ------------------------ JOBS ------------------------
+jobs:
+
+  # ===== PREP: PLAN =====
+  pc_prep_plan:
+    type: command
+    component: azureml:pc_prep_plan:${version_pc_prep}
+    compute: ${{ parent.inputs.compute_name_cpu }}
+    inputs:
+      tree_df_path: ${{ parent.inputs.tree_df_path }}
+      pc_raw_metadata: ${{ parent.inputs.pc_raw_metadata }}
+      pc_raw: ${{ parent.inputs.pc_raw }}
+    outputs:
+      items_folder:
+        type: uri_folder
+        mode: rw_mount
+        path: azureml://datastores/workspaceblobstore/paths/green_space_monitoring/job_outputs/${version_pc_prep}/${run_name}/prep_plan_items/
+
+  # ===== PREP: PARALLEL MAP =====
+  pc_prep_parallel:
+    type: parallel
+    compute: ${{ parent.inputs.compute_name_cpu }}
+    description: "Preprocess rel_path rows -> write pc/img/bgt artifacts + per-item JSON."
+    inputs:
+      items_folder:
+        type: uri_folder
+        path: ${{ parent.jobs.pc_prep_plan.outputs.items_folder }}
+      pc_raw:
+        type: uri_folder
+        mode: ro_mount
+        path: ${{ parent.inputs.pc_raw }}
+      reference_trees_path:
+        type: uri_file
+        path: ${{ parent.inputs.reference_trees_path }}
+      pc_raw_metadata:
+        type: uri_file
+        path: ${{ parent.inputs.pc_raw_metadata }}
+      bgt_pavements_raw:
+        type: uri_file
+        path: ${{ parent.inputs.bgt_pavements_raw }}
+      resolution: ${{ parent.inputs.resolution }}
+      num_workers: ${{ parent.inputs.num_workers }}
+      debug: ${{ parent.inputs.debug }}
+      overwrite: ${{ parent.inputs.overwrite }}
+    outputs:
+      pc_dir:
+        type: uri_folder
+        mode: rw_mount
+        path: azureml://datastores/workspaceblobstore/paths/green_space_monitoring/pc_dir/${version_pc_prep}/${run_name}/
+      img_dir:
+        type: uri_folder
+        mode: rw_mount
+        path: azureml://datastores/workspaceblobstore/paths/green_space_monitoring/img_dir/${version_pc_prep}/${run_name}/
+      bgt_dir:
+        type: uri_folder
+        mode: rw_mount
+        path: azureml://datastores/workspaceblobstore/paths/green_space_monitoring/bgt_dir/${version_pc_prep}/${run_name}/
+      job_output_file:
+        type: uri_file
+        mode: rw_mount
+        path: azureml://datastores/workspaceblobstore/paths/green_space_monitoring/job_outputs/${version_pc_prep}/${run_name}/pc_prep_results.jsonl
+    input_data: ${{ inputs.items_folder }}
+    mini_batch_size: ${{ parent.inputs.aml_mini_batch }}
+    resources:
+      instance_count: ${{ parent.inputs.num_nodes_cpu }}
+    max_concurrency_per_instance: ${{ parent.inputs.num_workers }}
+    logging_level: "INFO"
+    mini_batch_error_threshold: -1
+    retry_settings:
+      timeout: ${{ parent.inputs.pc_prep_per_item_timeout }}
+      max_retries: 1
+    environment_variables:
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+      NUMEXPR_MAX_THREADS: "1"
+      GDAL_NUM_THREADS: "1"
+      NUMBA_NUM_THREADS: "1"
+
+    task:
+      type: run_function
+      code: ../pc_prep/
+      entry_script: parallel_pc_prep_script.py
+      environment: azureml:pc_prep:${version_pc_prep}
+      program_arguments: >-
+        --reference_trees_path  ${{inputs.reference_trees_path}}
+        --pc_raw_metadata       ${{inputs.pc_raw_metadata}}
+        --bgt_pavements_raw     ${{inputs.bgt_pavements_raw}}
+        --pc_raw                ${{inputs.pc_raw}}
+        --img_dir               ${{outputs.img_dir}}
+        --pc_dir                ${{outputs.pc_dir}}
+        --bgt_dir               ${{outputs.bgt_dir}}
+        --resolution            ${{inputs.resolution}}
+        --debug                 ${{inputs.debug}}
+        --overwrite             ${{inputs.overwrite}}
+      append_row_to: ${{ outputs.job_output_file }}
+
+  # ===== PREP: MERGE =====
+  pc_prep_merge:
+    type: command
+    component: azureml:pc_prep_merge:${version_pc_prep}
+    compute: ${{ parent.inputs.compute_name_cpu }}
+    inputs:
+      partial_metadata_lines: ${{ parent.jobs.pc_prep_parallel.outputs.job_output_file }}
+    outputs:
+      img_metadata:
+        type: uri_file
+        mode: rw_mount
+        path: azureml://datastores/workspaceblobstore/paths/green_space_monitoring/img_dir/${version_pc_prep}/${run_name}/img_metadata.json
+      pc_metadata:
+        type: uri_file
+        mode: rw_mount
+        path: azureml://datastores/workspaceblobstore/paths/green_space_monitoring/pc_dir/${version_pc_prep}/${run_name}/pc_metadata.json
+      bgt_metadata:
+        type: uri_file
+        mode: rw_mount
+        path: azureml://datastores/workspaceblobstore/paths/green_space_monitoring/bgt_dir/${version_pc_prep}/${run_name}/bgt_metadata.json
+
+  # ===== SEGMENT: PLAN =====
+  pc_segment_plan:
+    type: command
+    component: azureml:pc_segment_plan:${version_pc_segment}
+    compute: ${{ parent.inputs.compute_name_cpu }}
+    inputs:
+      img_metadata: ${{ parent.jobs.pc_prep_merge.outputs.img_metadata }}
+    outputs:
+      items_folder:
+        type: uri_folder
+        mode: rw_mount
+        path: azureml://datastores/workspaceblobstore/paths/green_space_monitoring/job_outputs/${version_pc_segment}/${run_name}/segment_plan_items/
+
+  # ===== SEGMENT: PARALLEL MAP =====
+  pc_segment_parallel:
+    type: parallel
+    compute: ${{ parent.inputs.compute_name_gpu }}
+    inputs:
+      items_folder:
+        type: uri_folder
+        path: ${{ parent.jobs.pc_segment_plan.outputs.items_folder }}
+      img_dir:
+        type: uri_folder
+        path: ${{ parent.jobs.pc_prep_parallel.outputs.img_dir }}
+      model_path:
+        type: custom_model
+        path: ${{ parent.inputs.model_path }}
+      batch_size: ${{ parent.inputs.batch_size }}
+      debug: ${{ parent.inputs.debug }}
+      overwrite: ${{ parent.inputs.overwrite }}
+    outputs:
+      segment_dir:
+        type: uri_folder
+        mode: rw_mount
+        path: azureml://datastores/workspaceblobstore/paths/green_space_monitoring/segment_dir/${version_pc_segment}/${run_name}/
+      job_output_file:
+        type: uri_file
+        mode: rw_mount
+        path: azureml://datastores/workspaceblobstore/paths/green_space_monitoring/job_outputs/${version_pc_segment}/${run_name}/pc_segment_results.jsonl
+    input_data: ${{ inputs.items_folder }}
+    mini_batch_size: ${{ parent.inputs.aml_segment_mini_batch }}
+    resources:
+      instance_count: ${{ parent.inputs.num_nodes_gpu }}
+    max_concurrency_per_instance: 1
+    retry_settings:
+      timeout: ${{ parent.inputs.pc_segment_per_item_timeout }}
+      max_retries: 1
+    logging_level: "DEBUG"
+
+    task:
+      type: run_function
+      code: ../pc_segment/
+      entry_script: parallel_pc_segment_script.py
+      environment: azureml:pc_segment:${version_pc_segment}
+      program_arguments: >-
+        --model_mount     ${{inputs.model_path}}
+        --img_dir_mount   ${{inputs.img_dir}}
+        --segment_dir     ${{outputs.segment_dir}}
+        --batch_size      ${{inputs.batch_size}}
+        --debug           ${{inputs.debug}}
+        --overwrite       ${{inputs.overwrite}}
+      append_row_to: ${{ outputs.job_output_file }}
+
+  # ===== SEGMENT: MERGE =====
+  pc_segment_merge:
+    type: command
+    component: azureml:pc_segment_merge:${version_pc_segment}
+    compute: ${{ parent.inputs.compute_name_cpu }}
+    inputs:
+      partial_metadata_lines: ${{ parent.jobs.pc_segment_parallel.outputs.job_output_file }}
+    outputs:
+      segment_metadata:
+        type: uri_file
+        mode: rw_mount
+        path: azureml://datastores/workspaceblobstore/paths/green_space_monitoring/segment_dir/${version_pc_segment}/${run_name}/segment_metadata.json
+
+  # ===== OPS: DISTRIBUTE =====
+  pc_ops_dist:
+    type: command
+    component: azureml:pc_ops_dist:${version_pc_ops}
+    compute: ${{ parent.inputs.compute_name_cpu }}
+    inputs:
+      segment_dir:     ${{ parent.jobs.pc_segment_parallel.outputs.segment_dir }}
+      segment_metadata: ${{ parent.jobs.pc_segment_merge.outputs.segment_metadata }}
+      img_dir:         ${{ parent.jobs.pc_prep_parallel.outputs.img_dir }}
+      img_metadata:    ${{ parent.jobs.pc_prep_merge.outputs.img_metadata }}
+      pc_dir:          ${{ parent.jobs.pc_prep_parallel.outputs.pc_dir }}
+      pc_metadata:     ${{ parent.jobs.pc_prep_merge.outputs.pc_metadata }}
+      resolution:      ${{ parent.inputs.resolution }}
+      num_workers:     ${{ parent.inputs.num_workers }}
+      debug: ${{ parent.inputs.debug }}
+      overwrite: ${{ parent.inputs.overwrite }}
+      resolve_overlapping_trees: ${{ parent.inputs.resolve_overlapping_trees }}
+    outputs:
+      ops_dir:
+        type: uri_folder
+        mode: rw_mount
+        path: azureml://datastores/workspaceblobstore/paths/green_space_monitoring/ops_dir/${version_pc_ops}/${run_name}/
+      ops_metadata_partials:
+        type: uri_folder
+        mode: rw_mount
+        path: azureml://datastores/workspaceblobstore/paths/green_space_monitoring/ops_dir/${version_pc_ops}/${run_name}/partials
+    resources:
+      instance_count: ${{ parent.inputs.num_nodes_cpu }}
+    limits:
+      timeout: ${{ parent.inputs.pc_ops_per_worker_timeout }}
+
+  # ===== OPS: MERGE =====
+  pc_ops_merge:
+    type: command
+    component: azureml:pc_ops_merge:${version_pc_ops}
+    compute: ${{ parent.inputs.compute_name_cpu }}
+    inputs:
+      partials_dir: ${{ parent.jobs.pc_ops_dist.outputs.ops_metadata_partials }}
+    outputs:
+      ops_metadata:
+        type: uri_file
+        mode: rw_mount
+        path: azureml://datastores/workspaceblobstore/paths/green_space_monitoring/ops_dir/${version_pc_ops}/${run_name}/ops_metadata.json
+
+  # ===== MODELING: PLAN =====
+  tree_modeling_plan:
+    type: command
+    component: azureml:tree_modeling_plan:${version_tree_modeling}
+    compute: ${{ parent.inputs.compute_name_cpu }}
+    inputs:
+      ops_metadata: ${{ parent.jobs.pc_ops_merge.outputs.ops_metadata }}
+    outputs:
+      items_folder:
+        type: uri_folder
+        mode: rw_mount
+        path: azureml://datastores/workspaceblobstore/paths/green_space_monitoring/job_outputs/${version_tree_modeling}/${run_name}/modeling_plan_items/
+
+  # ===== MODELING: PARALLEL MAP =====
+  tree_modeling_parallel:
+    type: parallel
+    compute: ${{ parent.inputs.compute_name_cpu }}
+    description: "Tree modeling per pc_path (parallel)."
+    inputs:
+      items_folder:
+        type: uri_folder
+        path: ${{ parent.jobs.tree_modeling_plan.outputs.items_folder }}
+      ops_dir:
+        type: uri_folder
+        path: ${{ parent.jobs.pc_ops_dist.outputs.ops_dir }}
+      ops_metadata:
+        type: uri_file
+        path: ${{ parent.jobs.pc_ops_merge.outputs.ops_metadata }}
+      bgt_dir:
+        type: uri_folder
+        path: ${{ parent.jobs.pc_prep_parallel.outputs.bgt_dir }}
+      bgt_metadata:
+        type: uri_file
+        path: ${{ parent.jobs.pc_prep_merge.outputs.bgt_metadata }}
+      debug: ${{ parent.inputs.debug }}
+      overwrite: ${{ parent.inputs.overwrite }}
+    outputs:
+      modeling_dir:
+        type: uri_folder
+        path: ${{ parent.outputs.modeling_dir }}
+      job_output_file:
+        type: uri_file
+        mode: rw_mount
+        path: azureml://datastores/workspaceblobstore/paths/green_space_monitoring/job_outputs/${version_tree_modeling}/${run_name}/tree_modeling_results.jsonl
+    input_data: ${{ inputs.items_folder }}
+    mini_batch_size: ${{ parent.inputs.aml_mini_batch }}
+    resources:
+      instance_count: ${{ parent.inputs.num_nodes_cpu }}
+    max_concurrency_per_instance: ${{ parent.inputs.num_workers }}
+    retry_settings:
+      timeout: ${{ parent.inputs.tree_modeling_per_item_timeout }}
+      max_retries: 1
+    logging_level: "DEBUG"
+
+    task:
+      type: run_function
+      code: ../tree_modeling/
+      entry_script: parallel_tree_modeling_script.py
+      environment: azureml:tree_modeling:${version_tree_modeling}
+      program_arguments: >-
+        --ops_dir_mount   ${{inputs.ops_dir}}
+        --ops_metadata    ${{inputs.ops_metadata}}
+        --bgt_dir_mount   ${{inputs.bgt_dir}}
+        --bgt_metadata    ${{inputs.bgt_metadata}}
+        --modeling_dir    ${{outputs.modeling_dir}}
+        --debug           ${{inputs.debug}}
+        --overwrite       ${{inputs.overwrite}}
+      append_row_to: ${{ outputs.job_output_file }}
+
+  # ===== MODELING: MERGE (optional index) =====
+  tree_modeling_merge:
+    type: command
+    component: azureml:tree_modeling_merge:${version_tree_modeling}
+    compute: ${{ parent.inputs.compute_name_cpu }}
+    inputs:
+      partial_metadata_lines: ${{ parent.jobs.tree_modeling_parallel.outputs.job_output_file }}
+    outputs:
+      modeling_index: ${{ parent.outputs.modeling_index }}

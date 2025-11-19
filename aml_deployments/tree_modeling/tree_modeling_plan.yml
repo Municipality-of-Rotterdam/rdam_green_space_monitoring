@@ -1,0 +1,22 @@
+$schema: https://azuremlschemas.azureedge.net/latest/commandComponent.schema.json
+name: tree_modeling_plan
+display_name: Plan tree_modeling items (one file per pc_path)
+type: command
+version: ${version}
+
+environment:
+  image: mcr.microsoft.com/azureml/openmpi5.0-ubuntu24.04
+
+inputs:
+  ops_metadata:
+    type: uri_file
+
+outputs:
+  items_folder:
+    type: uri_folder
+
+code: ./
+command: >-
+  python tree_modeling_parallel_plan_script.py
+  --ops_metadata ${{inputs.ops_metadata}}
+  --out_items_folder ${{outputs.items_folder}}

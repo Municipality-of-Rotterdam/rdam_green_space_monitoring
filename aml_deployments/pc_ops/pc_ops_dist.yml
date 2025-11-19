@@ -1,0 +1,68 @@
+$schema: https://azuremlschemas.azureedge.net/latest/commandComponent.schema.json
+name: pc_ops_dist
+display_name: pc_ops (distributed)
+version: ${version}
+type: command
+
+code: ./
+environment: azureml:pc_ops:X.X.X
+
+inputs:
+  segment_dir:
+    type: uri_folder
+  segment_metadata:
+    type: uri_file
+  img_dir:
+    type: uri_folder
+  img_metadata:
+    type: uri_file
+  pc_dir:
+    type: uri_folder
+  pc_metadata:
+    type: uri_file
+  resolution:
+    type: number
+    optional: true
+  num_workers:
+    type: number
+    optional: true
+  resolve_overlapping_trees:
+    type: boolean
+    optional: true
+  debug:
+    type: boolean
+    optional: true
+  overwrite:
+    type: boolean
+    optional: true
+
+outputs:
+  ops_dir:
+    type: uri_folder
+  ops_metadata_partials:
+    type: uri_folder
+
+command: >-
+  set -euo pipefail &&
+  sed -i 's/\r//' env_vars.sh &&
+  source env_vars.sh &&
+  python dist_pc_ops_script.py
+  --segment_dir ${{inputs.segment_dir}}
+  --segment_metadata ${{inputs.segment_metadata}}
+  --img_dir ${{inputs.img_dir}}
+  --img_metadata ${{inputs.img_metadata}}
+  --pc_dir ${{inputs.pc_dir}}
+  --pc_metadata ${{inputs.pc_metadata}}
+  --ops_dir ${{outputs.ops_dir}}
+  --partials_dir ${{outputs.ops_metadata_partials}}
+  $[[--resolution ${{inputs.resolution}}]]
+  $[[--num_workers ${{inputs.num_workers}}]]
+  $[[--resolve_overlapping_trees ${{inputs.resolve_overlapping_trees}}]]
+  $[[--debug ${{inputs.debug}}]]
+  $[[--overwrite ${{inputs.overwrite}}]]
+
+# Multi-node distribution is configured when this component is used in a job.
+# You can still set the per-instance process count here.
+distribution:
+  type: mpi
+  process_count_per_instance: 1 # parallelization inside node is handled by num_workers param
